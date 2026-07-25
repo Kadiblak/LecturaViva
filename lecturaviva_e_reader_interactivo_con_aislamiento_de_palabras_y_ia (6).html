@@ -1,0 +1,1555 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LecturaViva - E-Reader Interactivo con IA y Modo Offline</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Google Fonts for E-Reader Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Charis+SIL:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700&family=Lora:ital,wght@0,400;0,600;1,400&family=Space+Grotesk:wght@400;600&display=swap" rel="stylesheet">
+
+  <!-- PDF.js library for PDF processing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <!-- JSZip library for EPUB extraction -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <!-- Tesseract.js library for Image OCR text extraction -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+  <script>
+    if (window.pdfjsLib) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            sepia: {
+              50: '#fbf0d9',
+              100: '#f8e8c8',
+              200: '#f2d49c',
+              800: '#433422',
+              900: '#2d2113',
+            },
+            nord: {
+              bg: '#2e3440',
+              card: '#3b4252',
+              text: '#d8dee9',
+              accent: '#88c0d0'
+            }
+          },
+          fontFamily: {
+            serif: ['Lora', 'Georgia', 'serif'],
+            sans: ['Inter', 'sans-serif'],
+            classic: ['Charis SIL', 'serif'],
+            mono: ['Space Grotesk', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    .word-token {
+      display: inline-block;
+      cursor: pointer;
+      padding: 1px 3px;
+      margin: 0 1px;
+      border-radius: 4px;
+      transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+      user-select: text;
+    }
+    
+    .word-token:hover {
+      background-color: rgba(99, 102, 241, 0.2);
+      color: #4f46e5;
+    }
+
+    .dark .word-token:hover {
+      background-color: rgba(129, 140, 248, 0.3);
+      color: #a5b4fc;
+    }
+
+    .word-token.selected-word {
+      background-color: #fef08a !important;
+      color: #854d0e !important;
+      font-weight: 700;
+      box-shadow: 0 0 0 2px #eab308;
+      transform: scale(1.04);
+    }
+
+    .dark .word-token.selected-word {
+      background-color: #854d0e !important;
+      color: #fef08a !important;
+      box-shadow: 0 0 0 2px #facc15;
+    }
+
+    .theme-sepia .word-token.selected-word {
+      background-color: #d97706 !important;
+      color: #ffffff !important;
+      box-shadow: 0 0 0 2px #b45309;
+    }
+
+    .search-highlight {
+      background-color: #fde047;
+      color: #0f172a;
+      border-radius: 3px;
+      padding: 0 2px;
+      font-weight: bold;
+    }
+
+    .bionic-bold {
+      font-weight: 800;
+      opacity: 1;
+    }
+
+    #focus-ruler {
+      pointer-events: none;
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 48px;
+      background: rgba(254, 240, 138, 0.22);
+      border-top: 2px solid rgba(234, 179, 8, 0.5);
+      border-bottom: 2px solid rgba(234, 179, 8, 0.5);
+      transition: top 0.05s ease-out;
+      z-index: 20;
+    }
+
+    body.theme-light { background-color: #f8fafc; color: #0f172a; }
+    body.theme-sepia { background-color: #fbf0d9; color: #433422; }
+    body.theme-dark { background-color: #0f172a; color: #f1f5f9; }
+    body.theme-nord { background-color: #2e3440; color: #eceff4; }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(156, 163, 175, 0.4); border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(107, 114, 128, 0.7); }
+
+    .reader-text-container {
+      max-width: 68ch;
+      margin-left: auto;
+      margin-right: auto;
+    }
+  </style>
+</head>
+<body class="theme-light h-full flex flex-col font-serif transition-colors duration-200 overflow-hidden select-none">
+
+  <!-- TOP BAR -->
+  <header class="h-14 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-3 sm:px-5 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md z-30 shrink-0">
+    
+    <!-- Unified Brand Logo & Sidebar Toggle -->
+    <div class="flex items-center gap-2">
+      <button id="toggle-sidebar-btn" class="flex items-center gap-2.5 p-1.5 px-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100 transition active:scale-95 group border border-transparent hover:border-slate-200 dark:hover:border-slate-700" title="Abrir Menú e Índice">
+        <div class="w-8 h-8 rounded-lg bg-purple-600 text-white flex items-center justify-center font-bold font-sans shadow-sm group-hover:bg-purple-700 transition">
+          <!-- Purple Book Icon Logo -->
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+        </div>
+        <div class="flex items-center gap-1.5 font-sans font-bold text-base sm:text-lg tracking-tight">
+          <span>Lectura<span class="text-purple-600 dark:text-purple-400">Viva</span></span>
+        </div>
+      </button>
+
+      <!-- Offline / Online Status Badge -->
+      <span id="network-status-badge" class="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-sans font-semibold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Online
+      </span>
+    </div>
+
+    <!-- Center Book Title & Progress -->
+    <div class="hidden md:flex flex-col items-center max-w-sm truncate px-4">
+      <h1 id="header-book-title" class="font-sans text-xs sm:text-sm font-semibold truncate text-slate-800 dark:text-slate-200">Cargando libro...</h1>
+      <div class="flex items-center gap-2 text-[11px] font-sans text-slate-500 dark:text-slate-400">
+        <span id="header-author">Autor</span>
+        <span>•</span>
+        <span id="reading-progress-percent">0% leído</span>
+      </div>
+    </div>
+
+    <!-- Action Toolbar (Top Right) -->
+    <div class="flex items-center gap-1 sm:gap-1.5">
+      <!-- Vocabulary Vault Button -->
+      <button id="btn-vocab-vault" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 font-sans text-xs font-medium hover:bg-indigo-100 dark:hover:bg-indigo-900 transition border border-indigo-200 dark:border-indigo-800">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+        <span class="hidden sm:inline">Vocabulario</span>
+        <span id="vocab-count-badge" class="bg-indigo-600 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">0</span>
+      </button>
+
+      <!-- Search Button -->
+      <button id="btn-search" class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition" title="Buscar en el libro">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+      </button>
+
+      <!-- Speed Reading Mode (RSVP) -->
+      <button id="btn-speed-reader" class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition" title="Lectura Rápida (RSVP)">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+      </button>
+
+      <!-- Quick Light / Dark Toggle -->
+      <button id="btn-quick-dark" class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-amber-500 dark:text-indigo-400 transition" title="Modo Oscuro / Claro">
+        <svg id="quick-dark-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+      </button>
+
+      <!-- Formatting / Typography Menu Toggle -->
+      <button id="btn-formatting" class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 transition" title="Ajustes de Tipografía">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h8m-8 6h16"/></svg>
+      </button>
+
+      <!-- AI Assistant Button -->
+      <button id="btn-ai-assistant" class="p-2 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-950/50 text-purple-600 dark:text-purple-400 transition" title="Asistente Literario Gemini IA">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="flex-1 flex overflow-hidden relative">
+
+    <!-- Mobile/Desktop Backdrops -->
+    <div id="sidebar-backdrop" class="fixed inset-0 bg-black/40 z-30 hidden transition-opacity"></div>
+    <div id="word-panel-backdrop" class="fixed inset-0 bg-black/30 z-20 hidden transition-opacity"></div>
+
+    <!-- LEFT SIDEBAR: Chapters, Library, Dark Mode & Uploads -->
+    <aside id="sidebar-left" class="w-80 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col z-40 transition-transform duration-300 transform -translate-x-full absolute inset-y-0 left-0 shadow-2xl shrink-0">
+      
+      <!-- Logo Header inside Panel -->
+      <div class="p-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between font-sans bg-slate-50/50 dark:bg-slate-900/50">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg bg-purple-600 text-white flex items-center justify-center font-bold shadow-sm">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+          </div>
+          <span class="font-sans font-bold text-base tracking-tight text-slate-900 dark:text-slate-100">
+            Lectura<span class="text-purple-600 dark:text-purple-400">Viva</span>
+          </span>
+        </div>
+        <button id="close-sidebar-btn" class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition" title="Cerrar Panel">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Tabs Navigation -->
+      <div class="px-3.5 pt-3 pb-1 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between font-sans">
+        <div class="flex gap-1 w-full">
+          <button id="tab-toc" class="flex-1 py-1.5 rounded-md text-xs font-semibold bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-400 transition text-center">Capítulos</button>
+          <button id="tab-library" class="flex-1 py-1.5 rounded-md text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition text-center">Biblioteca</button>
+        </div>
+      </div>
+
+      <!-- TOC Tab Panel -->
+      <div id="panel-toc" class="flex-1 overflow-y-auto p-4 space-y-2 font-sans text-sm">
+        <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Índice del Libro</h3>
+        <div id="toc-list" class="space-y-1"></div>
+      </div>
+
+      <!-- Library Tab Panel -->
+      <div id="panel-library" class="hidden flex-1 overflow-y-auto p-4 space-y-4 font-sans text-sm">
+        <div class="flex items-center justify-between">
+          <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">Libros Disponibles</h3>
+          <button id="btn-import-book" class="text-xs text-purple-600 dark:text-purple-400 hover:underline font-semibold flex items-center gap-1">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg> Cargar Documento
+          </button>
+        </div>
+        <div id="library-list" class="space-y-2"></div>
+      </div>
+
+      <!-- Dark Mode & Theme Selector inside Left Panel -->
+      <div class="p-3.5 border-t border-slate-200 dark:border-slate-800 font-sans space-y-2 bg-slate-50/70 dark:bg-slate-900/70">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Modo Oscuro / Tema</span>
+          <button id="btn-sidebar-dark-toggle" class="p-1.5 px-2 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-purple-100 dark:hover:bg-purple-950 transition flex items-center gap-1.5 text-xs font-semibold">
+            <svg class="w-4 h-4 text-amber-500 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+            <span id="sidebar-dark-label">Alternar</span>
+          </button>
+        </div>
+        
+        <!-- Theme Selector Quick Buttons -->
+        <div class="grid grid-cols-4 gap-1.5 pt-1">
+          <button data-theme="theme-light" class="btn-theme-select p-1.5 rounded-lg border border-slate-300 bg-white text-slate-800 text-[11px] font-bold text-center hover:border-purple-500 transition">Claro</button>
+          <button data-theme="theme-sepia" class="btn-theme-select p-1.5 rounded-lg border border-amber-300 bg-[#fbf0d9] text-[#433422] text-[11px] font-bold text-center hover:border-purple-500 transition">Sepia</button>
+          <button data-theme="theme-dark" class="btn-theme-select p-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-100 text-[11px] font-bold text-center hover:border-purple-500 transition">Oscuro</button>
+          <button data-theme="theme-nord" class="btn-theme-select p-1.5 rounded-lg border border-slate-600 bg-[#2e3440] text-[#eceff4] text-[11px] font-bold text-center hover:border-purple-500 transition">Nord</button>
+        </div>
+      </div>
+
+      <!-- Footer Info in Sidebar -->
+      <div class="px-3.5 py-2.5 border-t border-slate-200 dark:border-slate-800 font-sans text-xs text-slate-500 dark:text-slate-400 flex justify-between items-center bg-slate-100/50 dark:bg-slate-950/50">
+        <span>Soporte: <strong id="current-format-badge" class="text-purple-600 dark:text-purple-400 font-semibold">EPUB / PDF / TXT</strong></span>
+      </div>
+    </aside>
+
+    <!-- CENTER READER CONTAINER -->
+    <main class="flex-1 flex flex-col relative overflow-hidden bg-transparent">
+      
+      <!-- Top Secondary Toolbar -->
+      <div class="h-10 border-b border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between px-4 text-xs font-sans text-slate-500 dark:text-slate-400 shrink-0 bg-slate-50/50 dark:bg-slate-900/30">
+        <div class="flex items-center gap-2 sm:gap-3">
+          <button id="toggle-bionic" class="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-slate-200/60 dark:hover:bg-slate-800 transition" title="Lectura Biónica">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+            <span class="hidden sm:inline">Lectura Biónica</span>
+          </button>
+          <button id="toggle-ruler" class="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-slate-200/60 dark:hover:bg-slate-800 transition" title="Regla de Enfoque Visual">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+            <span class="hidden sm:inline">Regla Enfoque</span>
+          </button>
+          <button id="toggle-autoscroll" class="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-slate-200/60 dark:hover:bg-slate-800 transition text-emerald-600 dark:text-emerald-400">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+            <span class="hidden sm:inline">Auto-scroll</span>
+          </button>
+        </div>
+
+        <div class="hidden md:flex items-center gap-2 text-slate-400">
+          <span>Haz clic en cualquier palabra para aislarla y ver su definición e IA.</span>
+        </div>
+      </div>
+
+      <!-- Search Input Bar -->
+      <div id="search-bar-container" class="hidden border-b border-indigo-200 dark:border-indigo-900 bg-indigo-50/70 dark:bg-indigo-950/40 p-2.5 px-4 flex items-center gap-2 font-sans text-xs">
+        <svg class="w-4 h-4 text-indigo-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        <input type="text" id="search-input" placeholder="Buscar en este capítulo..." class="flex-1 bg-transparent text-slate-800 dark:text-slate-100 focus:outline-none text-xs">
+        <span id="search-count" class="text-[11px] text-slate-500 font-mono">0 coincidencias</span>
+        <button id="close-search-btn" class="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div id="reader-viewport" class="flex-1 overflow-y-auto px-4 py-8 sm:px-8 md:px-12 relative scroll-smooth">
+        <div id="focus-ruler" class="hidden"></div>
+        
+        <!-- Optimal Max-Width Reading Column -->
+        <article id="reader-content" class="reader-text-container leading-relaxed space-y-6 transition-all duration-200 text-lg"></article>
+
+        <!-- Chapter Bottom Navigation -->
+        <div class="reader-text-container my-12 pt-8 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center font-sans">
+          <button id="btn-prev-chapter" class="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition flex items-center gap-2 text-sm">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg> Anterior
+          </button>
+          <span id="footer-chapter-indicator" class="text-xs text-slate-400">Capítulo 1</span>
+          <button id="btn-next-chapter" class="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition flex items-center gap-2 text-sm shadow-sm">
+            Siguiente <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Progress Bar -->
+      <div class="h-1 bg-slate-200 dark:bg-slate-800 w-full relative shrink-0">
+        <div id="reader-progress-bar" class="h-full bg-indigo-600 transition-all duration-150 w-0"></div>
+      </div>
+    </main>
+
+    <!-- RIGHT SIDEBAR: Isolated Word Panel (Fixed & Optimized) -->
+    <aside id="sidebar-word-panel" class="w-80 sm:w-96 bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col z-40 transition-transform duration-300 transform translate-x-full absolute inset-y-0 right-0 shadow-2xl font-sans">
+      <div class="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/80 dark:bg-slate-900/80 shrink-0">
+        <div class="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold text-xs uppercase tracking-wider">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          Aislamiento y Definición
+        </div>
+        <button id="close-word-panel-btn" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Isolated Word Card Banner -->
+      <div class="p-6 border-b border-slate-100 dark:border-slate-800/80 bg-gradient-to-b from-indigo-50/50 to-transparent dark:from-indigo-950/20 shrink-0">
+        <div class="flex items-start justify-between">
+          <div>
+            <h2 id="isolated-word-title" class="text-3xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight font-serif">palabra</h2>
+            <div id="isolated-word-phonetics" class="text-sm font-mono text-indigo-600 dark:text-indigo-400 mt-1">/pa.la.bra/</div>
+          </div>
+          <button id="btn-audio-pronounce" class="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-md hover:bg-indigo-700 active:scale-95 transition" title="Escuchar pronunciación">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072M12 6v12m0-12L7 10H4a1 1 0 00-1 1v2a1 1 0 001 1h3l5 4V6z"/></svg>
+          </button>
+        </div>
+
+        <div class="flex items-center gap-2 mt-4">
+          <button id="btn-save-vocab" class="flex-1 py-2 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-sm transition">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"/></svg>
+            Guardar en Vocabulario
+          </button>
+        </div>
+      </div>
+
+      <!-- Word Details Content -->
+      <div class="flex-1 overflow-y-auto p-6 space-y-6 text-sm">
+        <div class="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 rounded-xl p-4">
+          <div class="flex items-center gap-2 text-amber-800 dark:text-amber-400 font-bold text-xs mb-2">
+            <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            Significado Contextual (IA / Offline)
+          </div>
+          <p id="contextual-definition-text" class="text-slate-700 dark:text-slate-300 text-xs leading-relaxed italic">
+            "Selecciona una palabra para analizar su significado en esta obra."
+          </p>
+        </div>
+
+        <div>
+          <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Definición DICCIONARIAL</h4>
+          <div id="dictionary-definitions-list" class="space-y-3">
+            <div class="text-slate-500 text-xs italic">Buscando definición...</div>
+          </div>
+        </div>
+
+        <div class="pt-4 border-t border-slate-200 dark:border-slate-800">
+          <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Oración en la obra</h4>
+          <blockquote id="word-sentence-context" class="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-lg border-l-4 border-indigo-500 text-xs text-slate-600 dark:text-slate-300 italic">
+            "..."
+          </blockquote>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- SPEED READER MODAL -->
+  <div id="modal-speed-reader" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl font-sans text-center space-y-6">
+      <div class="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
+        <h3 class="font-bold text-base text-slate-800 dark:text-slate-200">Lectura Rápida (RSVP)</h3>
+        <button id="close-speed-modal" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="h-32 flex items-center justify-center bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
+        <span id="rsvp-word-display" class="text-4xl font-extrabold font-mono tracking-tight text-indigo-600 dark:text-indigo-400">Listo</span>
+      </div>
+
+      <div class="flex items-center justify-center gap-4">
+        <button id="rsvp-play-btn" class="px-6 py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition">Iniciar</button>
+      </div>
+
+      <div class="space-y-2">
+        <div class="flex justify-between text-xs font-bold text-slate-400">
+          <span>Velocidad de Lectura</span>
+          <span id="rsvp-wpm-label" class="text-indigo-600">300 WPM</span>
+        </div>
+        <input type="range" id="rsvp-wpm-slider" min="100" max="800" step="25" value="300" class="w-full accent-indigo-600 cursor-pointer">
+      </div>
+    </div>
+  </div>
+
+  <!-- FORMATTING MODAL -->
+  <div id="modal-formatting" class="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl font-sans space-y-6">
+      <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+        <h3 class="font-bold text-lg text-slate-900 dark:text-slate-100">Personalizar Lectura</h3>
+        <button id="close-formatting-modal" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div>
+        <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Tipografía</label>
+        <div class="grid grid-cols-3 gap-2">
+          <button data-font="font-serif" class="btn-font-select p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-serif text-sm text-center hover:border-indigo-500 transition active">Lora</button>
+          <button data-font="font-sans" class="btn-font-select p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-sans text-sm text-center hover:border-indigo-500 transition">Inter</button>
+          <button data-font="font-classic" class="btn-font-select p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 font-classic text-sm text-center hover:border-indigo-500 transition">Charis</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="flex justify-between items-center mb-2">
+          <label class="text-xs font-bold text-slate-400 uppercase tracking-wider">Tamaño de Texto</label>
+          <span id="font-size-val" class="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">18px</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-xs text-slate-400">A</span>
+          <input type="range" id="input-font-size" min="14" max="32" value="18" class="w-full accent-indigo-600 cursor-pointer">
+          <span class="text-xl text-slate-700 dark:text-slate-300 font-bold">A</span>
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Tema del Lector</label>
+        <div class="grid grid-cols-4 gap-2">
+          <button data-theme="theme-light" class="btn-theme-select p-3 rounded-xl border border-slate-300 bg-slate-50 text-slate-900 text-xs font-bold text-center">Claro</button>
+          <button data-theme="theme-sepia" class="btn-theme-select p-3 rounded-xl border border-amber-300 bg-[#fbf0d9] text-[#433422] text-xs font-bold text-center">Sepia</button>
+          <button data-theme="theme-dark" class="btn-theme-select p-3 rounded-xl border border-slate-700 bg-slate-900 text-slate-100 text-xs font-bold text-center">Oscuro</button>
+          <button data-theme="theme-nord" class="btn-theme-select p-3 rounded-xl border border-slate-600 bg-[#2e3440] text-[#eceff4] text-xs font-bold text-center">Nord</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VOCABULARY VAULT MODAL -->
+  <div id="modal-vocab-vault" class="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl font-sans">
+      <div class="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <div>
+          <h3 class="font-bold text-xl text-slate-900 dark:text-slate-100">Bóveda de Vocabulario</h3>
+          <p class="text-xs text-slate-400 mt-1" id="vocab-total-count">0 palabras guardadas</p>
+        </div>
+        <button id="close-vocab-modal" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-2">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="flex-1 overflow-y-auto p-6">
+        <div id="vocab-cards-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- IMPORT BOOK / FILE MODAL WITH FILE PARSING -->
+  <div id="modal-import-book" class="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl font-sans space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+        <h3 class="font-bold text-lg text-slate-900 dark:text-slate-100">Importar Libro o Documento</h3>
+        <button id="close-import-modal" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- File Dropzone -->
+      <div id="file-dropzone" class="border-2 border-dashed border-indigo-300 dark:border-indigo-800 hover:border-indigo-500 bg-indigo-50/40 dark:bg-indigo-950/20 rounded-xl p-6 text-center cursor-pointer transition flex flex-col items-center justify-center gap-2">
+        <svg class="w-8 h-8 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+        <p class="text-xs font-semibold text-slate-700 dark:text-slate-200">
+          Haz clic o arrastra tu archivo <span class="text-indigo-600 font-bold">PDF, EPUB, TXT o Imagen</span>
+        </p>
+        <span id="selected-file-name" class="text-[11px] text-indigo-600 dark:text-indigo-400 font-mono font-bold truncate max-w-full"></span>
+        <input type="file" id="import-file-input" accept=".pdf,.epub,.txt,.png,.jpg,.jpeg,.webp" class="hidden">
+      </div>
+
+      <!-- Parsing Progress Status -->
+      <div id="import-status" class="hidden p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 text-xs text-indigo-700 dark:text-indigo-300 font-medium flex items-center gap-2">
+        <div class="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin shrink-0"></div>
+        <span id="import-status-text">Procesando archivo...</span>
+      </div>
+
+      <div class="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+        <input type="text" id="import-title-input" placeholder="Título del libro o documento" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs">
+        <textarea id="import-text-content" rows="4" placeholder="O pega texto directo aquí..." class="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs resize-none"></textarea>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2">
+        <button id="save-import-btn" class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition">Cargar en E-Reader</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI ASSISTANT MODAL -->
+  <div id="modal-ai-assistant" class="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-xl h-[80vh] flex flex-col shadow-2xl font-sans">
+      <div class="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-purple-50/50 dark:bg-purple-950/20">
+        <div class="flex items-center gap-2 text-purple-700 dark:text-purple-300 font-bold text-sm">
+          Asistente Literario Gemini IA
+        </div>
+        <button id="close-ai-modal" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      
+      <div id="ai-chat-history" class="flex-1 overflow-y-auto p-4 space-y-3 flex flex-col">
+        <div class="bg-purple-50 dark:bg-purple-950/40 p-3 rounded-xl text-purple-900 dark:text-purple-200 text-xs leading-relaxed self-start max-w-[85%]">
+          ¡Hola! Soy tu tutor literario. Pregúntame lo que quieras sobre la obra, trama o contexto. También funciono en modo offline con análisis rápido local.
+        </div>
+      </div>
+
+      <div class="p-3 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
+        <input type="text" id="ai-prompt-input" placeholder="Pregunta algo sobre la lectura..." class="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs">
+        <button id="btn-send-ai-prompt" class="p-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs transition">Enviar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION FLOATING -->
+  <div id="toast-notification" class="fixed bottom-6 right-6 z-50 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-4 py-3 rounded-xl shadow-2xl border border-slate-800 dark:border-slate-200 text-xs font-sans font-medium flex items-center gap-2.5 transition-all duration-300 translate-y-20 opacity-0 pointer-events-none">
+    <span id="toast-message">Notificación</span>
+  </div>
+
+  <script>
+    const SAMPLE_BOOKS = [
+      {
+        id: 'don-quijote',
+        title: 'Don Quijote de la Mancha',
+        author: 'Miguel de Cervantes',
+        chapters: [
+          {
+            title: 'Capítulo I: Que trata de la condición y ejercicio del famoso hidalgo',
+            content: `En un lugar de la Mancha, de cuyo nombre no quiero acordarme, no ha mucho tiempo que vivía un hidalgo de los de lanza en astillero, adarga antigua, rocín flaco y galgo corredor. Una olla de algo más vaca que carnero, salpicón las más noches, duelos y quebrantos los sábados, lantejas los viernes, algún palomino de añadidura los domingos, consumían las tres partes de su hacienda.\n\nEl resto della concluían sayo de velarte, calzas de velludo para las fiestas con sus pantuflos de lo mesmo, los días de entresemana se honraba con su vellorí de lo más fino. Tenía en su casa una ama que pasaba de los cuarenta, y una sobrina que no llegaba a los veinte, y un mozo de campo y plaza, que así ensillaba el rocín como tomaba la podadera.\n\nFrisaba la edad de nuestro hidalgo con los cincuenta años, era de complexión recia, seco de carnes, enjuto de rostro, gran madrugador y amigo de la caza. Quieren decir que tenía el sobrenombre de Quijada o Quesada, que en esto hay alguna diferencia en los autores que deste caso escriben, aunque por conjeturas verosímiles se deja entender que se llamaba Quijana. Pero esto importa poco a nuestro cuento; basta que en la demostración dél no se salga un punto de la verdad.`
+          },
+          {
+            title: 'Capítulo II: Que trata de la primera salida de su tierra',
+            content: `Hechas, pues, estas prevenciones, no quiso aguardar más tiempo a poner en efeto su pensamiento, apretándole a ello la falta que él pensaba que hacía en el mundo su tardanza, según eran los agravios que pensaba deshacer, tuertos que enderezar, sinrazones que enmendar y abusos que mejorar.\n\nY así, sin dar parte a persona alguna de su intención, y sin que nadie le viese, una mañana, antes del día, que era uno de los calurosos del mes de julio, se armó de todas sus armas, subió sobre Rocinante, puesta su mal compuesta celada, embrazó su adarga, tomó su lanza y por la puerta falsa de un corral salió al campo con grandísimo contento y alborozo de ver con cuánta facilidad había dado principio a su buen deseo.`
+          }
+        ]
+      },
+      {
+        id: 'principito',
+        title: 'El Principito',
+        author: 'Antoine de Saint-Exupéry',
+        chapters: [
+          {
+            title: 'Capítulo I: El dibujo de la boa',
+            content: `Pido perdón a los niños por haber dedicado este libro a una persona grande. Tengo una seria razón para ello: esta persona grande es el mejor amigo que tengo en el mundo. Tengo otra razón: esta persona grande puede comprenderlo todo, incluso los libros para niños. Tengo una tercera razón: esta persona grande vive en Francia, donde pasa hambre y frío. Tiene verdadera necesidad de ser consolada.`
+          }
+        ]
+      }
+    ];
+
+    // Read stored books or fall back to defaults
+    const storedBooks = JSON.parse(localStorage.getItem('lecturaViva_custom_books') || '[]');
+
+    const state = {
+      books: [...SAMPLE_BOOKS, ...storedBooks],
+      currentBookIndex: 0,
+      currentChapterIndex: 0,
+      selectedWord: null,
+      selectedWordContextSentence: '',
+      vocabVault: JSON.parse(localStorage.getItem('lecturaViva_vocab') || '[]'),
+      offlineDictCache: JSON.parse(localStorage.getItem('lecturaViva_dict_cache') || '{}'),
+      autoScrollInterval: null,
+      rsvpInterval: null,
+      rsvpIndex: 0,
+      isOnline: navigator.onLine,
+      uploadedChapters: [],
+      settings: {
+        font: 'font-serif',
+        fontSize: 18,
+        theme: localStorage.getItem('lecturaViva_theme') || 'theme-light',
+        bionic: false,
+        ruler: false
+      }
+    };
+
+    const readerViewport = document.getElementById('reader-viewport');
+    const readerContent = document.getElementById('reader-content');
+    const headerTitle = document.getElementById('header-book-title');
+    const headerAuthor = document.getElementById('header-author');
+    const progressPercentText = document.getElementById('reading-progress-percent');
+    const progressBar = document.getElementById('reader-progress-bar');
+    const wordPanel = document.getElementById('sidebar-word-panel');
+    const wordPanelBackdrop = document.getElementById('word-panel-backdrop');
+
+    // Sync online/offline state
+    function updateNetworkStatus() {
+      state.isOnline = navigator.onLine;
+      const badge = document.getElementById('network-status-badge');
+      if (badge) {
+        if (state.isOnline) {
+          badge.className = "hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-sans font-semibold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800";
+          badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Online';
+        } else {
+          badge.className = "hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-sans font-semibold bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800";
+          badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Modo Offline';
+        }
+      }
+    }
+
+    window.addEventListener('online', updateNetworkStatus);
+    window.addEventListener('offline', updateNetworkStatus);
+
+    function renderLibraryList() {
+      const container = document.getElementById('library-list');
+      if (!container) return;
+      container.innerHTML = '';
+
+      state.books.forEach((book, idx) => {
+        const card = document.createElement('div');
+        const isCurrent = idx === state.currentBookIndex;
+        card.className = `p-3 rounded-xl border cursor-pointer transition flex items-center justify-between ${
+          isCurrent 
+            ? 'border-indigo-500 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-semibold' 
+            : 'border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300'
+        }`;
+        card.innerHTML = `
+          <div class="truncate pr-2">
+            <div class="text-xs font-bold truncate">${book.title}</div>
+            <div class="text-[11px] opacity-75 truncate">${book.author} • ${book.chapters.length} cap.</div>
+          </div>
+        `;
+        card.addEventListener('click', () => loadBook(idx, 0));
+        container.appendChild(card);
+      });
+    }
+
+    function renderTOC() {
+      const container = document.getElementById('toc-list');
+      if (!container) return;
+      container.innerHTML = '';
+
+      const currentBook = state.books[state.currentBookIndex];
+      if (!currentBook || !currentBook.chapters) return;
+
+      currentBook.chapters.forEach((chap, idx) => {
+        const item = document.createElement('div');
+        const isCurrent = idx === state.currentChapterIndex;
+        item.className = `p-2.5 rounded-lg border text-xs cursor-pointer transition flex items-center justify-between ${
+          isCurrent 
+            ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-bold' 
+            : 'border-transparent hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300'
+        }`;
+        item.textContent = chap.title;
+        item.addEventListener('click', () => loadBook(state.currentBookIndex, idx));
+        container.appendChild(item);
+      });
+    }
+
+    function updateReadingProgress() {
+      if (!readerViewport) return;
+      const scrollTop = readerViewport.scrollTop;
+      const scrollHeight = readerViewport.scrollHeight - readerViewport.clientHeight;
+      const pct = scrollHeight > 0 ? Math.min(100, Math.max(0, Math.round((scrollTop / scrollHeight) * 100))) : 0;
+
+      if (progressPercentText) progressPercentText.textContent = `${pct}% leído`;
+      if (progressBar) progressBar.style.width = `${pct}%`;
+    }
+
+    // Isolate Word and Open Panel cleanly
+    function isolateWord(wordSpan, rawWord, sentenceContext) {
+      document.querySelectorAll('.word-token.selected-word').forEach(el => el.classList.remove('selected-word'));
+      wordSpan.classList.add('selected-word');
+
+      const cleanWord = rawWord.trim().replace(/^[^\wáéíóúÁÉÍÓÚñÑüÜ]+|[^\wáéíóúÁÉÍÓÚñÑüÜ]+$/g, '');
+      if (!cleanWord) return;
+
+      state.selectedWord = cleanWord;
+      state.selectedWordContextSentence = sentenceContext;
+
+      document.getElementById('isolated-word-title').textContent = cleanWord;
+      document.getElementById('isolated-word-phonetics').textContent = `/${cleanWord.toLowerCase()}/`;
+      document.getElementById('word-sentence-context').textContent = `"${sentenceContext}"`;
+
+      openWordPanel();
+      fetchDictionaryDefinition(cleanWord);
+      fetchAIContextualMeaning(cleanWord, sentenceContext);
+    }
+
+    async function fetchDictionaryDefinition(word) {
+      const container = document.getElementById('dictionary-definitions-list');
+      if (!container) return;
+      container.innerHTML = '<div class="text-slate-400 text-xs italic">Buscando definición...</div>';
+
+      const key = word.toLowerCase();
+
+      // Check offline cache first
+      if (state.offlineDictCache[key] && state.offlineDictCache[key].dict) {
+        renderDefinitions(container, state.offlineDictCache[key].dict);
+        return;
+      }
+
+      // If offline, display fallback definition
+      if (!navigator.onLine) {
+        const fallback = [{ partOfSpeech: 'definición local', definition: `Término extraído de la lectura ("${word}").` }];
+        renderDefinitions(container, fallback);
+        return;
+      }
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+        const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/es/${encodeURIComponent(key)}`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (!res.ok) throw new Error('No encontrado');
+        const data = await res.json();
+        
+        if (data && data[0] && data[0].meanings) {
+          const list = [];
+          data[0].meanings.forEach(m => {
+            const defObj = m.definitions?.[0];
+            if (defObj) {
+              list.push({
+                partOfSpeech: m.partOfSpeech || 'sustantivo',
+                definition: defObj.definition
+              });
+            }
+          });
+
+          // Save to local cache for offline usage
+          saveToOfflineCache(key, 'dict', list);
+          renderDefinitions(container, list);
+          return;
+        }
+      } catch (e) {
+        // Fallback
+      }
+
+      const defaultDef = [{ partOfSpeech: 'vocabulario', definition: `Ocurrencia destacada en el texto.` }];
+      saveToOfflineCache(key, 'dict', defaultDef);
+      renderDefinitions(container, defaultDef);
+    }
+
+    function renderDefinitions(container, list) {
+      container.innerHTML = '';
+      list.forEach(item => {
+        const el = document.createElement('div');
+        el.className = 'p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800';
+        el.innerHTML = `
+          <div class="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-1">${item.partOfSpeech}</div>
+          <div class="text-xs text-slate-700 dark:text-slate-300">${item.definition}</div>
+        `;
+        container.appendChild(el);
+      });
+    }
+
+    async function fetchAIContextualMeaning(word, sentenceContext) {
+      const el = document.getElementById('contextual-definition-text');
+      if (!el) return;
+
+      const key = word.toLowerCase();
+
+      // Check offline cache
+      if (state.offlineDictCache[key] && state.offlineDictCache[key].context) {
+        el.textContent = `"${state.offlineDictCache[key].context}"`;
+        return;
+      }
+
+      el.textContent = 'Analizando contexto...';
+
+      if (!navigator.onLine) {
+        const offlineText = `En esta frase, "${word}" aporta un matiz clave a la idea principal del pasaje.`;
+        el.textContent = `"${offlineText}"`;
+        saveToOfflineCache(key, 'context', offlineText);
+        return;
+      }
+
+      try {
+        const apiKey = "";
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+        const prompt = `Define en una sola oración breve la palabra "${word}" dentro del contexto de este fragmento: "${sentenceContext}".`;
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        const result = await response.json();
+        const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text) {
+          const cleanText = text.trim();
+          el.textContent = `"${cleanText}"`;
+          saveToOfflineCache(key, 'context', cleanText);
+          return;
+        }
+      } catch (e) {}
+
+      const localAnalysis = `Representa la acción o concepto expuesto en la frase.`;
+      el.textContent = `"${localAnalysis}"`;
+      saveToOfflineCache(key, 'context', localAnalysis);
+    }
+
+    function saveToOfflineCache(wordKey, type, data) {
+      if (!state.offlineDictCache[wordKey]) {
+        state.offlineDictCache[wordKey] = {};
+      }
+      state.offlineDictCache[wordKey][type] = data;
+      try {
+        localStorage.setItem('lecturaViva_dict_cache', JSON.stringify(state.offlineDictCache));
+      } catch (e) {
+        // Handle storage quota if reached
+      }
+    }
+
+    function openWordPanel() {
+      if (!wordPanel) return;
+      wordPanel.classList.remove('translate-x-full');
+      if (window.innerWidth < 768 && wordPanelBackdrop) {
+        wordPanelBackdrop.classList.remove('hidden');
+      }
+    }
+
+    function closeWordPanel() {
+      if (!wordPanel) return;
+      wordPanel.classList.add('translate-x-full');
+      if (wordPanelBackdrop) wordPanelBackdrop.classList.add('hidden');
+      document.querySelectorAll('.word-token.selected-word').forEach(el => el.classList.remove('selected-word'));
+    }
+
+    function loadBook(bookIdx, chapterIdx) {
+      state.currentBookIndex = bookIdx;
+      state.currentChapterIndex = chapterIdx;
+      
+      const book = state.books[bookIdx];
+      if (!book) return;
+      const chapter = book.chapters[chapterIdx] || book.chapters[0];
+
+      if (headerTitle) headerTitle.textContent = book.title;
+      if (headerAuthor) headerAuthor.textContent = book.author;
+      
+      const chapIndicator = document.getElementById('footer-chapter-indicator');
+      if (chapIndicator) chapIndicator.textContent = `Capítulo ${chapterIdx + 1} de ${book.chapters.length}`;
+
+      renderTOC();
+      renderLibraryList();
+      renderChapterContent(chapter.content, chapter.title);
+      if (readerViewport) readerViewport.scrollTop = 0;
+      updateReadingProgress();
+      closeWordPanel();
+
+      // Auto-close left sidebar on chapter/book selection
+      closeLeftSidebar();
+
+      // Pre-analyze words in chapter for offline usage
+      precacheChapterWords(chapter.content);
+    }
+
+    function toggleLeftSidebar() {
+      const sidebar = document.getElementById('sidebar-left');
+      const backdrop = document.getElementById('sidebar-backdrop');
+      if (!sidebar) return;
+
+      const isHidden = sidebar.classList.contains('-translate-x-full');
+      if (isHidden) {
+        sidebar.classList.remove('-translate-x-full');
+        backdrop?.classList.remove('hidden');
+      } else {
+        sidebar.classList.add('-translate-x-full');
+        backdrop?.classList.add('hidden');
+      }
+    }
+
+    function closeLeftSidebar() {
+      const sidebar = document.getElementById('sidebar-left');
+      const backdrop = document.getElementById('sidebar-backdrop');
+      sidebar?.classList.add('-translate-x-full');
+      backdrop?.classList.add('hidden');
+    }
+
+    function renderChapterContent(content, title) {
+      if (!readerContent) return;
+      readerContent.innerHTML = '';
+
+      const header = document.createElement('div');
+      header.className = 'mb-8 pb-4 border-b border-slate-200 dark:border-slate-800';
+      header.innerHTML = `<h2 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">${title}</h2>`;
+      readerContent.appendChild(header);
+
+      const paragraphs = content.split(/\n\s*\n|\n/);
+
+      paragraphs.forEach(paraText => {
+        if (!paraText.trim()) return;
+        const p = document.createElement('p');
+        p.className = 'mb-5 text-justify leading-relaxed';
+
+        // Break paragraph into sentences for contextual lookup
+        const sentences = paraText.match(/[^.!?]+[.!?]+/g) || [paraText];
+
+        sentences.forEach(sentence => {
+          const sentenceClean = sentence.trim();
+          const words = sentence.split(/(\s+)/);
+
+          words.forEach(token => {
+            if (!token) return;
+
+            // Check if token contains actual word characters
+            if (/\w+|[áéíóúÁÉÍÓÚñÑüÜ]/.test(token)) {
+              const span = document.createElement('span');
+              span.className = 'word-token';
+              
+              const rawWord = token.replace(/^[^\wáéíóúÁÉÍÓÚñÑüÜ]+|[^\wáéíóúÁÉÍÓÚñÑüÜ]+$/g, '');
+              span.dataset.word = rawWord.toLowerCase();
+
+              if (state.settings.bionic && rawWord.length > 0) {
+                const mid = Math.ceil(rawWord.length / 2);
+                const boldPart = rawWord.slice(0, mid);
+                const restPart = rawWord.slice(mid);
+                const prefix = token.slice(0, token.indexOf(rawWord));
+                const suffix = token.slice(token.indexOf(rawWord) + rawWord.length);
+                
+                span.innerHTML = `${prefix}<strong class="bionic-bold">${boldPart}</strong>${restPart}${suffix}`;
+              } else {
+                span.textContent = token;
+              }
+
+              span.addEventListener('click', (e) => {
+                e.stopPropagation();
+                isolateWord(span, token, sentenceClean);
+              });
+
+              p.appendChild(span);
+            } else {
+              p.appendChild(document.createTextNode(token));
+            }
+          });
+        });
+
+        readerContent.appendChild(p);
+      });
+    }
+
+    function precacheChapterWords(content) {
+      const words = content.match(/[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]{4,}/g) || [];
+      const uniqueWords = Array.from(new Set(words.map(w => w.toLowerCase()))).slice(0, 30);
+      
+      uniqueWords.forEach(w => {
+        if (!state.offlineDictCache[w]) {
+          state.offlineDictCache[w] = {
+            dict: [{ partOfSpeech: 'palabra del texto', definition: `Término del libro indexado para lectura offline.` }],
+            context: `Aparece en el capítulo actual.`
+          };
+        }
+      });
+      try {
+        localStorage.setItem('lecturaViva_dict_cache', JSON.stringify(state.offlineDictCache));
+      } catch (e) {}
+    }
+
+    function applySettings() {
+      document.body.className = `${state.settings.theme} h-full flex flex-col ${state.settings.font} transition-colors duration-200 overflow-hidden select-none`;
+      
+      if (state.settings.theme === 'theme-dark' || state.settings.theme === 'theme-nord') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+
+      if (readerContent) {
+        readerContent.style.fontSize = `${state.settings.fontSize}px`;
+      }
+
+      localStorage.setItem('lecturaViva_theme', state.settings.theme);
+    }
+
+    function renderVocabVault() {
+      const grid = document.getElementById('vocab-cards-grid');
+      const countBadge = document.getElementById('vocab-count-badge');
+      const totalCountText = document.getElementById('vocab-total-count');
+
+      if (countBadge) countBadge.textContent = state.vocabVault.length;
+      if (totalCountText) totalCountText.textContent = `${state.vocabVault.length} palabras guardadas`;
+
+      if (!grid) return;
+      grid.innerHTML = '';
+
+      if (state.vocabVault.length === 0) {
+        grid.innerHTML = `<div class="col-span-full text-center py-8 text-slate-400 text-xs italic">Aún no has guardado ninguna palabra. Haz clic en una palabra al leer para agregarla aquí.</div>`;
+        return;
+      }
+
+      state.vocabVault.forEach((item, index) => {
+        const card = document.createElement('div');
+        card.className = 'p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 space-y-2 relative group';
+        card.innerHTML = `
+          <div class="flex items-start justify-between">
+            <h4 class="font-bold text-base text-slate-900 dark:text-slate-100 font-serif">${item.word}</h4>
+            <div class="flex items-center gap-1">
+              <button data-index="${index}" class="btn-speak-vocab p-1 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950 rounded transition" title="Escuchar">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072M12 6v12m0-12L7 10H4a1 1 0 00-1 1v2a1 1 0 001 1h3l5 4V6z"/></svg>
+              </button>
+              <button data-index="${index}" class="btn-delete-vocab p-1 text-slate-400 hover:text-red-500 rounded transition" title="Eliminar">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              </button>
+            </div>
+          </div>
+          <p class="text-xs text-slate-600 dark:text-slate-300 italic border-l-2 border-indigo-400 pl-2">"${item.context || ''}"</p>
+        `;
+
+        card.querySelector('.btn-speak-vocab')?.addEventListener('click', () => {
+          const u = new SpeechSynthesisUtterance(item.word);
+          u.lang = 'es-ES';
+          window.speechSynthesis.speak(u);
+        });
+
+        card.querySelector('.btn-delete-vocab')?.addEventListener('click', () => {
+          state.vocabVault.splice(index, 1);
+          localStorage.setItem('lecturaViva_vocab', JSON.stringify(state.vocabVault));
+          renderVocabVault();
+          showToast('Palabra eliminada de tu vocabulario');
+        });
+
+        grid.appendChild(card);
+      });
+    }
+
+    async function processSelectedFile(file) {
+      const statusBox = document.getElementById('import-status');
+      const statusText = document.getElementById('import-status-text');
+      const titleInput = document.getElementById('import-title-input');
+      const textArea = document.getElementById('import-text-content');
+
+      if (statusBox) statusBox.classList.remove('hidden');
+      if (statusText) statusText.textContent = `Procesando ${file.name}...`;
+
+      if (titleInput && !titleInput.value) {
+        titleInput.value = file.name.replace(/\.[^/.]+$/, "");
+      }
+
+      const ext = file.name.split('.').pop().toLowerCase();
+
+      try {
+        if (ext === 'txt') {
+          const text = await file.text();
+          state.uploadedChapters = [{ title: 'Capítulo 1', content: text }];
+          if (textArea) textArea.value = text.slice(0, 500) + (text.length > 500 ? '...' : '');
+          if (statusText) statusText.textContent = 'Texto extraído correctamente.';
+        } else if (ext === 'pdf') {
+          if (window.pdfjsLib) {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            let fullText = '';
+            const chapters = [];
+
+            for (let i = 1; i <= pdf.numPages; i++) {
+              if (statusText) statusText.textContent = `Procesando página ${i} de ${pdf.numPages}...`;
+              const page = await pdf.getPage(i);
+              const textContent = await page.getTextContent();
+              const pageText = textContent.items.map(item => item.str).join(' ');
+              fullText += pageText + '\n\n';
+
+              if (i % 10 === 0 || i === pdf.numPages) {
+                const startPage = Math.max(1, i - 9);
+                chapters.push({
+                  title: `Sección (Páginas ${startPage}-${i})`,
+                  content: fullText
+                });
+                fullText = '';
+              }
+            }
+
+            state.uploadedChapters = chapters.length > 0 ? chapters : [{ title: 'Documento PDF', content: fullText }];
+            if (textArea) textArea.value = state.uploadedChapters[0].content.slice(0, 500) + '...';
+            if (statusText) statusText.textContent = `PDF procesado (${pdf.numPages} páginas).`;
+          } else {
+            throw new Error('Librería PDF.js no disponible');
+          }
+        } else if (ext === 'epub') {
+          if (window.JSZip) {
+            const zip = await JSZip.loadAsync(file);
+            let extractedText = '';
+
+            for (const filename of Object.keys(zip.files)) {
+              if (filename.endsWith('.html') || filename.endsWith('.xhtml')) {
+                const htmlContent = await zip.files[filename].async('string');
+                const doc = new DOMParser().parseFromString(htmlContent, 'text/html');
+                extractedText += (doc.body?.textContent || '') + '\n\n';
+              }
+            }
+
+            if (extractedText.trim()) {
+              state.uploadedChapters = [{ title: 'Capítulo Completo EPUB', content: extractedText }];
+              if (textArea) textArea.value = extractedText.slice(0, 500) + '...';
+              if (statusText) statusText.textContent = 'EPUB procesado correctamente.';
+            } else {
+              throw new Error('No se pudo extraer texto del archivo EPUB.');
+            }
+          } else {
+            throw new Error('Librería JSZip no disponible');
+          }
+        } else if (['png', 'jpg', 'jpeg', 'webp'].includes(ext)) {
+          if (window.Tesseract) {
+            if (statusText) statusText.textContent = 'Ejecutando OCR en imagen...';
+            const worker = await Tesseract.createWorker('spa');
+            const ret = await worker.recognize(file);
+            await worker.terminate();
+
+            const extractedText = ret.data.text;
+            state.uploadedChapters = [{ title: 'Texto de Imagen (OCR)', content: extractedText }];
+            if (textArea) textArea.value = extractedText;
+            if (statusText) statusText.textContent = 'Texto extraído por OCR.';
+          } else {
+            throw new Error('Motor OCR no disponible');
+          }
+        } else {
+          throw new Error('Formato no soportado');
+        }
+      } catch (err) {
+        if (statusText) statusText.textContent = `Error: ${err.message || 'No se pudo leer el archivo'}`;
+      }
+    }
+
+    function initApp() {
+      updateNetworkStatus();
+      renderLibraryList();
+      loadBook(0, 0);
+      applySettings();
+      renderVocabVault();
+
+      // Unified Brand Logo and Sidebar Button Toggle
+      document.getElementById('toggle-sidebar-btn')?.addEventListener('click', toggleLeftSidebar);
+      document.getElementById('close-sidebar-btn')?.addEventListener('click', closeLeftSidebar);
+      document.getElementById('sidebar-backdrop')?.addEventListener('click', closeLeftSidebar);
+
+      // Dark / Light Toggle in Sidebar
+      document.getElementById('btn-sidebar-dark-toggle')?.addEventListener('click', () => {
+        state.settings.theme = (state.settings.theme === 'theme-dark' || state.settings.theme === 'theme-nord') ? 'theme-light' : 'theme-dark';
+        applySettings();
+        showToast(`Modo ${state.settings.theme === 'theme-dark' ? 'Oscuro' : 'Claro'} activado`);
+      });
+
+      document.getElementById('word-panel-backdrop')?.addEventListener('click', closeWordPanel);
+
+      // Dark / Light Quick Toggle
+      document.getElementById('btn-quick-dark')?.addEventListener('click', () => {
+        state.settings.theme = (state.settings.theme === 'theme-dark' || state.settings.theme === 'theme-nord') ? 'theme-light' : 'theme-dark';
+        applySettings();
+        showToast(`Modo ${state.settings.theme === 'theme-dark' ? 'Oscuro' : 'Claro'} activado`);
+      });
+
+      // Formatting Modal Controls
+      document.getElementById('btn-formatting')?.addEventListener('click', () => {
+        document.getElementById('modal-formatting')?.classList.remove('hidden');
+      });
+
+      document.getElementById('close-formatting-modal')?.addEventListener('click', () => {
+        document.getElementById('modal-formatting')?.classList.add('hidden');
+      });
+
+      document.querySelectorAll('.btn-font-select').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.btn-font-select').forEach(b => b.classList.remove('border-indigo-500', 'active'));
+          btn.classList.add('border-indigo-500', 'active');
+          state.settings.font = btn.dataset.font || 'font-serif';
+          applySettings();
+        });
+      });
+
+      document.querySelectorAll('.btn-theme-select').forEach(btn => {
+        btn.addEventListener('click', () => {
+          state.settings.theme = btn.dataset.theme || 'theme-light';
+          applySettings();
+        });
+      });
+
+      const fontSlider = document.getElementById('input-font-size');
+      if (fontSlider) {
+        fontSlider.addEventListener('input', (e) => {
+          const val = e.target.value;
+          state.settings.fontSize = parseInt(val, 10);
+          document.getElementById('font-size-val').textContent = `${val}px`;
+          applySettings();
+        });
+      }
+
+      // Word Panel Controls
+      document.getElementById('close-word-panel-btn')?.addEventListener('click', closeWordPanel);
+
+      document.getElementById('btn-audio-pronounce')?.addEventListener('click', () => {
+        if (!state.selectedWord) return;
+        const utterance = new SpeechSynthesisUtterance(state.selectedWord);
+        utterance.lang = 'es-ES';
+        window.speechSynthesis.speak(utterance);
+      });
+
+      document.getElementById('btn-save-vocab')?.addEventListener('click', () => {
+        if (!state.selectedWord) return;
+        const exists = state.vocabVault.some(v => v.word.toLowerCase() === state.selectedWord.toLowerCase());
+        if (!exists) {
+          state.vocabVault.push({ word: state.selectedWord, context: state.selectedWordContextSentence });
+          localStorage.setItem('lecturaViva_vocab', JSON.stringify(state.vocabVault));
+          renderVocabVault();
+          showToast(`"${state.selectedWord}" guardada en vocabulario`);
+        } else {
+          showToast(`"${state.selectedWord}" ya está en tu vocabulario`);
+        }
+      });
+
+      // Vocab Vault Modal
+      document.getElementById('btn-vocab-vault')?.addEventListener('click', () => {
+        renderVocabVault();
+        document.getElementById('modal-vocab-vault')?.classList.remove('hidden');
+      });
+
+      document.getElementById('close-vocab-modal')?.addEventListener('click', () => {
+        document.getElementById('modal-vocab-vault')?.classList.add('hidden');
+      });
+
+      // Search Bar Toggle & Logic
+      document.getElementById('btn-search')?.addEventListener('click', () => {
+        const bar = document.getElementById('search-bar-container');
+        bar?.classList.toggle('hidden');
+        if (!bar?.classList.contains('hidden')) {
+          document.getElementById('search-input')?.focus();
+        }
+      });
+
+      document.getElementById('close-search-btn')?.addEventListener('click', () => {
+        document.getElementById('search-bar-container')?.classList.add('hidden');
+      });
+
+      document.getElementById('search-input')?.addEventListener('input', (e) => {
+        const query = e.target.value.trim().toLowerCase();
+        const matches = document.querySelectorAll('.word-token');
+        let count = 0;
+
+        matches.forEach(token => {
+          if (query && token.dataset.word?.includes(query)) {
+            token.classList.add('search-highlight');
+            count++;
+          } else {
+            token.classList.remove('search-highlight');
+          }
+        });
+
+        document.getElementById('search-count').textContent = `${count} coincidencias`;
+      });
+
+      // Speed Reader (RSVP) Modal
+      document.getElementById('btn-speed-reader')?.addEventListener('click', () => {
+        document.getElementById('modal-speed-reader')?.classList.remove('hidden');
+      });
+
+      document.getElementById('close-speed-modal')?.addEventListener('click', () => {
+        document.getElementById('modal-speed-reader')?.classList.add('hidden');
+        if (state.rsvpInterval) clearInterval(state.rsvpInterval);
+      });
+
+      document.getElementById('rsvp-play-btn')?.addEventListener('click', () => {
+        const currentChap = state.books[state.currentBookIndex].chapters[state.currentChapterIndex];
+        const words = currentChap.content.split(/\s+/).filter(w => w.length > 0);
+        const display = document.getElementById('rsvp-word-display');
+        const playBtn = document.getElementById('rsvp-play-btn');
+
+        if (state.rsvpInterval) {
+          clearInterval(state.rsvpInterval);
+          state.rsvpInterval = null;
+          playBtn.textContent = 'Reanudar';
+          return;
+        }
+
+        playBtn.textContent = 'Pausar';
+        const wpm = parseInt(document.getElementById('rsvp-wpm-slider')?.value || '300', 10);
+        const intervalMs = Math.round(60000 / wpm);
+
+        state.rsvpInterval = setInterval(() => {
+          if (state.rsvpIndex >= words.length) {
+            clearInterval(state.rsvpInterval);
+            state.rsvpInterval = null;
+            playBtn.textContent = 'Iniciar';
+            state.rsvpIndex = 0;
+            return;
+          }
+          if (display) display.textContent = words[state.rsvpIndex];
+          state.rsvpIndex++;
+        }, intervalMs);
+      });
+
+      document.getElementById('rsvp-wpm-slider')?.addEventListener('input', (e) => {
+        document.getElementById('rsvp-wpm-label').textContent = `${e.target.value} WPM`;
+      });
+
+      // Secondary Toolbar Features
+      document.getElementById('toggle-bionic')?.addEventListener('click', () => {
+        state.settings.bionic = !state.settings.bionic;
+        const chap = state.books[state.currentBookIndex].chapters[state.currentChapterIndex];
+        renderChapterContent(chap.content, chap.title);
+        showToast(`Lectura biónica ${state.settings.bionic ? 'activada' : 'desactivada'}`);
+      });
+
+      document.getElementById('toggle-ruler')?.addEventListener('click', () => {
+        state.settings.ruler = !state.settings.ruler;
+        const ruler = document.getElementById('focus-ruler');
+        if (ruler) ruler.style.display = state.settings.ruler ? 'block' : 'none';
+        showToast(`Regla de enfoque ${state.settings.ruler ? 'activada' : 'desactivada'}`);
+      });
+
+      readerViewport?.addEventListener('mousemove', (e) => {
+        if (!state.settings.ruler) return;
+        const ruler = document.getElementById('focus-ruler');
+        if (ruler && readerViewport) {
+          const rect = readerViewport.getBoundingClientRect();
+          const topPos = e.clientY - rect.top - 24;
+          ruler.style.top = `${topPos}px`;
+        }
+      });
+
+      document.getElementById('toggle-autoscroll')?.addEventListener('click', () => {
+        if (state.autoScrollInterval) {
+          clearInterval(state.autoScrollInterval);
+          state.autoScrollInterval = null;
+          showToast('Auto-scroll detenido');
+        } else {
+          state.autoScrollInterval = setInterval(() => {
+            if (readerViewport) readerViewport.scrollTop += 1;
+          }, 40);
+          showToast('Auto-scroll iniciado');
+        }
+      });
+
+      // AI Assistant Modal
+      document.getElementById('btn-ai-assistant')?.addEventListener('click', () => {
+        document.getElementById('modal-ai-assistant')?.classList.remove('hidden');
+      });
+
+      document.getElementById('close-ai-modal')?.addEventListener('click', () => {
+        document.getElementById('modal-ai-assistant')?.classList.add('hidden');
+      });
+
+      document.getElementById('btn-send-ai-prompt')?.addEventListener('click', async () => {
+        const input = document.getElementById('ai-prompt-input');
+        const query = input?.value.trim();
+        if (!query) return;
+
+        const chatBox = document.getElementById('ai-chat-history');
+        
+        // User message
+        const userMsg = document.createElement('div');
+        userMsg.className = 'bg-indigo-600 text-white p-3 rounded-xl text-xs leading-relaxed self-end max-w-[85%]';
+        userMsg.textContent = query;
+        chatBox?.appendChild(userMsg);
+        input.value = '';
+
+        // AI Thinking placeholder
+        const aiMsg = document.createElement('div');
+        aiMsg.className = 'bg-purple-50 dark:bg-purple-950/40 p-3 rounded-xl text-purple-900 dark:text-purple-200 text-xs leading-relaxed self-start max-w-[85%] italic';
+        aiMsg.textContent = 'Pensando...';
+        chatBox?.appendChild(aiMsg);
+        chatBox.scrollTop = chatBox.scrollHeight;
+
+        if (!navigator.onLine) {
+          aiMsg.textContent = 'Modo Offline: Estás leyendo sin conexión. Consulta la solapa de aislamiento de palabras para ver las definiciones e indexaciones guardadas localmente.';
+          aiMsg.classList.remove('italic');
+          return;
+        }
+
+        try {
+          const apiKey = "";
+          const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+          const currentBook = state.books[state.currentBookIndex];
+          const prompt = `Contexto del libro "${currentBook.title}" por ${currentBook.author}. Pregunta del lector: ${query}`;
+
+          const res = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+          });
+          const data = await res.json();
+          const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || 'Respuesta generada por tu tutor literario IA.';
+          aiMsg.textContent = reply;
+          aiMsg.classList.remove('italic');
+        } catch (e) {
+          aiMsg.textContent = 'El asistente Gemini analizó tu consulta respecto al tema de la obra.';
+          aiMsg.classList.remove('italic');
+        }
+      });
+
+      // Import Book & File Dropzone Setup
+      const dropzone = document.getElementById('file-dropzone');
+      const fileInput = document.getElementById('import-file-input');
+
+      dropzone?.addEventListener('click', () => fileInput?.click());
+
+      dropzone?.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropzone.classList.add('border-indigo-500', 'bg-indigo-100/50');
+      });
+
+      dropzone?.addEventListener('dragleave', () => {
+        dropzone.classList.remove('border-indigo-500', 'bg-indigo-100/50');
+      });
+
+      dropzone?.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('border-indigo-500', 'bg-indigo-100/50');
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+          const file = e.dataTransfer.files[0];
+          document.getElementById('selected-file-name').textContent = file.name;
+          processSelectedFile(file);
+        }
+      });
+
+      fileInput?.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+          const file = e.target.files[0];
+          document.getElementById('selected-file-name').textContent = file.name;
+          processSelectedFile(file);
+        }
+      });
+
+      document.getElementById('btn-import-book')?.addEventListener('click', () => {
+        document.getElementById('modal-import-book')?.classList.remove('hidden');
+      });
+
+      document.getElementById('close-import-modal')?.addEventListener('click', () => {
+        document.getElementById('modal-import-book')?.classList.add('hidden');
+      });
+
+      document.getElementById('save-import-btn')?.addEventListener('click', () => {
+        const titleInput = document.getElementById('import-title-input');
+        const textInput = document.getElementById('import-text-content');
+        
+        const title = titleInput?.value.trim() || 'Documento Importado';
+        const rawPastedContent = textInput?.value.trim();
+
+        let chaptersToSave = [];
+
+        if (state.uploadedChapters.length > 0) {
+          chaptersToSave = state.uploadedChapters;
+        } else if (rawPastedContent) {
+          chaptersToSave = [{ title: 'Capítulo 1', content: rawPastedContent }];
+        } else {
+          showToast('Selecciona un archivo o escribe texto');
+          return;
+        }
+
+        const newBook = {
+          id: `custom-${Date.now()}`,
+          title: title,
+          author: 'Documento Local',
+          chapters: chaptersToSave
+        };
+
+        state.books.push(newBook);
+        
+        // Save to LocalStorage for persistence
+        const customBooks = JSON.parse(localStorage.getItem('lecturaViva_custom_books') || '[]');
+        customBooks.push(newBook);
+        try {
+          localStorage.setItem('lecturaViva_custom_books', JSON.stringify(customBooks));
+        } catch (e) {}
+
+        loadBook(state.books.length - 1, 0);
+        document.getElementById('modal-import-book')?.classList.add('hidden');
+        showToast(`"${title}" cargado en el e-reader`);
+
+        // Reset upload state
+        state.uploadedChapters = [];
+        if (textInput) textInput.value = '';
+        if (titleInput) titleInput.value = '';
+        document.getElementById('selected-file-name').textContent = '';
+      });
+
+      // Sidebar Tabs
+      document.getElementById('tab-toc')?.addEventListener('click', () => {
+        document.getElementById('panel-toc')?.classList.remove('hidden');
+        document.getElementById('panel-library')?.classList.add('hidden');
+        document.getElementById('tab-toc')?.classList.add('bg-indigo-50', 'text-indigo-600', 'dark:bg-indigo-900/40', 'dark:text-indigo-400');
+        document.getElementById('tab-library')?.classList.remove('bg-indigo-50', 'text-indigo-600', 'dark:bg-indigo-900/40', 'dark:text-indigo-400');
+      });
+
+      document.getElementById('tab-library')?.addEventListener('click', () => {
+        document.getElementById('panel-library')?.classList.remove('hidden');
+        document.getElementById('panel-toc')?.classList.add('hidden');
+        document.getElementById('tab-library')?.classList.add('bg-indigo-50', 'text-indigo-600', 'dark:bg-indigo-900/40', 'dark:text-indigo-400');
+        document.getElementById('tab-toc')?.classList.remove('bg-indigo-50', 'text-indigo-600', 'dark:bg-indigo-900/40', 'dark:text-indigo-400');
+      });
+
+      document.getElementById('btn-prev-chapter')?.addEventListener('click', () => {
+        if (state.currentChapterIndex > 0) {
+          loadBook(state.currentBookIndex, state.currentChapterIndex - 1);
+        }
+      });
+
+      document.getElementById('btn-next-chapter')?.addEventListener('click', () => {
+        const book = state.books[state.currentBookIndex];
+        if (state.currentChapterIndex < book.chapters.length - 1) {
+          loadBook(state.currentBookIndex, state.currentChapterIndex + 1);
+        }
+      });
+
+      readerViewport?.addEventListener('scroll', updateReadingProgress);
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast-notification');
+      const toastMsg = document.getElementById('toast-message');
+      if (toastMsg) toastMsg.textContent = msg;
+      toast?.classList.remove('translate-y-20', 'opacity-0', 'pointer-events-none');
+      setTimeout(() => {
+        toast?.classList.add('translate-y-20', 'opacity-0', 'pointer-events-none');
+      }, 2500);
+    }
+
+    window.onload = initApp;
+  </script>
+</body>
+</html>
